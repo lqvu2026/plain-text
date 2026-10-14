@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plain Text</title>
+<link rel="icon" type="image/png" href="plain-text-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="plain-text-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Plain Text">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d1f23; --muted: #6b7280;
+    --border: #d9dce1; --accent: #2563eb; --accent-text: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111317; --card: #1b1e24; --text: #eceef2; --muted: #9aa1ad; --border: #333842; --accent: #5b8cff; --accent-text: #0b1020; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 4px 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 14px; font-size: .92rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+  textarea {
+    width: 100%; min-height: 220px; resize: vertical; border: 0; outline: 0;
+    background: transparent; color: var(--text); font: inherit; font-size: 17px;
+  }
+  .counts { color: var(--muted); font-size: .85rem; margin-top: 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button {
+    font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); flex: 1 1 140px; }
+  button:active { transform: scale(.98); }
+  fieldset { border: 0; padding: 0; margin: 14px 0 0; }
+  legend { font-weight: 600; font-size: .9rem; margin-bottom: 4px; padding: 0; }
+  label { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: .95rem; }
+  label input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+  label small { display: block; color: var(--muted); }
+  #toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #111; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: .9rem;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Plain Text</h1>
+  <p class="sub">Paste text, and it comes out with no bold, italics, or other styling, ready to copy anywhere.</p>
+
+  <div class="card">
+    <textarea id="box" placeholder="Paste your text here…" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+    <div class="counts" id="counts">0 characters · 0 words</div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="pasteBtn">Paste</button>
+    <button class="primary" id="copyBtn">Copy</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <fieldset>
+    <legend>Cleanup options</legend>
+    <label><input type="checkbox" id="optUnicode" checked>
+      <span>Convert fancy styled letters to normal ones<small>Turns lookalike bold/italic characters (like 𝗕𝗼𝗹𝗱 or 𝘐𝘵𝘢𝘭𝘪𝘤) back into regular text. This is the kind of "formatting" that survives a normal paste.</small></span></label>
+    <label><input type="checkbox" id="optInvisible" checked>
+      <span>Remove invisible characters<small>Zero-width spaces and similar hidden marks.</small></span></label>
+    <label><input type="checkbox" id="optQuotes">
+      <span>Straighten curly quotes and dashes<small>“ ” ‘ ’ become " and '; – and — become -.</small></span></label>
+    <label><input type="checkbox" id="optSpaces">
+      <span>Tidy spaces and blank lines<small>Collapses repeated spaces and extra empty lines.</small></span></label>
+    <label><input type="checkbox" id="optMarkdown">
+      <span>Remove Markdown symbols<small>Strips **bold**, *italic*, # headings, and `code` marks.</small></span></label>
+  </fieldset>
+</main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  var box = document.getElementById('box');
+  var counts = document.getElementById('counts');
+  var toastEl = document.getElementById('toast');
+  var ids = ['optUnicode', 'optInvisible', 'optQuotes', 'optSpaces', 'optMarkdown'];
+  var defaults = { optUnicode: true, optInvisible: true, optQuotes: false, optSpaces: false, optMarkdown: false };
+
+  function opt(id) { return document.getElementById(id).checked; }
+
+  // Restore saved options
+  try {
+    var saved = JSON.parse(localStorage.getItem('plainTextOpts') || 'null');
+    ids.forEach(function (id) {
+      document.getElementById(id).checked = saved && id in saved ? saved[id] : defaults[id];
+    });
+  } catch (e) {}
+
+  function saveOpts() {
+    try {
+      var o = {};
+      ids.forEach(function (id) { o[id] = opt(id); });
+      localStorage.setItem('plainTextOpts', JSON.stringify(o));
+    } catch (e) {}
+  }
+
+  function clean(text) {
+    if (opt('optInvisible')) {
+      text = text.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '');
+      text = text.replace(/[\u00A0\u202F\u2007]/g, ' ');
+    }
+    if (opt('optUnicode')) {
+      // NFKC maps styled Unicode letters (bold, italic, script, etc.) to plain ones
+      text = text.normalize('NFKC');
+    } else {
+      text = text.normalize('NFC');
+    }
+    if (opt('optQuotes')) {
+      text = text.replace(/[\u2018\u2019\u201B]/g, "'")
+                 .replace(/[\u201C\u201D\u201F]/g, '"')
+                 .replace(/[\u2013\u2014]/g, '-');
+    }
+    if (opt('optMarkdown')) {
+      text = text.replace(/^\s{0,3}#{1,6}\s+/gm, '')
+                 .replace(/(\*\*|__)(.+?)\1/g, '$2')
+                 .replace(/(\*|_)(.+?)\1/g, '$2')
+                 .replace(/`([^`]*)`/g, '$1');
+    }
+    if (opt('optSpaces')) {
+      text = text.replace(/[ \t]+/g, ' ')
+                 .replace(/ *\n */g, '\n')
+                 .replace(/\n{3,}/g, '\n\n')
+                 .trim();
+    }
+    return text;
+  }
+
+  function updateCounts() {
+    var t = box.value;
+    var words = t.trim() ? t.trim().split(/\s+/).length : 0;
+    counts.textContent = t.length + ' characters · ' + words + ' words';
+  }
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { toastEl.classList.remove('show'); }, 1600);
+  }
+
+  function insertAtCursor(text) {
+    var start = box.selectionStart, end = box.selectionEnd;
+    box.value = box.value.slice(0, start) + text + box.value.slice(end);
+    var pos = start + text.length;
+    box.setSelectionRange(pos, pos);
+    updateCounts();
+  }
+
+  // Paste: always take plain text only, then clean it
+  box.addEventListener('paste', function (e) {
+    var cd = e.clipboardData || window.clipboardData;
+    if (!cd) return;
+    e.preventDefault();
+    insertAtCursor(clean(cd.getData('text/plain') || cd.getData('Text') || ''));
+  });
+
+  box.addEventListener('input', updateCounts);
+
+  // Re-clean everything already in the box when options change
+  ids.forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () {
+      saveOpts();
+      if (box.value) { box.value = clean(box.value); updateCounts(); }
+    });
+  });
+
+  document.getElementById('pasteBtn').addEventListener('click', function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      toast('Tap in the box and paste instead');
+      box.focus();
+      return;
+    }
+    navigator.clipboard.readText().then(function (t) {
+      box.value = clean(t);
+      updateCounts();
+      toast('Pasted as plain text');
+    }).catch(function () {
+      toast('Tap in the box and paste instead');
+      box.focus();
+    });
+  });
+
+  document.getElementById('copyBtn').addEventListener('click', function () {
+    var t = clean(box.value);
+    box.value = t;
+    updateCounts();
+    if (!t) { toast('Nothing to copy'); return; }
+    function fallback() {
+      box.focus(); box.select();
+      try { document.execCommand('copy'); toast('Copied'); } catch (e) { toast('Press and hold to copy'); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () { toast('Copied'); }, fallback);
+    } else { fallback(); }
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', function () {
+    box.value = '';
+    updateCounts();
+    box.focus();
+  });
+
+  updateCounts();
+})();
+</script>
+</body>
+</html>
